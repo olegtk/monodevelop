@@ -10,3 +10,5 @@ using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo ("MonoDevelop.PackageManagement.Cmdlets")]
 [assembly: InternalsVisibleTo ("MonoDevelop.PackageManagement.Extensions")]
 [assembly: InternalsVisibleTo ("MonoDevelop.PackageManagement.Tests")]
+[assembly: InternalsVisibleTo ("MonoDevelop.FSharp.Tests")]
+

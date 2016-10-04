@@ -116,6 +116,9 @@
     <Reference Include="FSharp.Core">
       <HintPath>..\packages\FSharp.Core\lib\net40\FSharp.Core.dll</HintPath>
     </Reference>
+    <Reference Include="MonoDevelop.PackageManagement">
+      <HintPath>..\..\..\build\AddIns\MonoDevelop.PackageManagement\MonoDevelop.PackageManagement.dll</HintPath>
+    </Reference>
   </ItemGroup>
   <ItemGroup>
     <Compile Include="TestBase.fs" />

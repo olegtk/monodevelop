@@ -23,6 +23,7 @@ type ``Template tests``() =
     let monitor = new ConsoleProgressMonitor()
     do
         FixtureSetup.initialiseMonoDevelop()
+        DesktopService.Initialize()
         let getField name =
             typeof<IdeApp>.GetField(name, BindingFlags.NonPublic ||| BindingFlags.Static)
 
@@ -68,6 +69,8 @@ type ``Template tests``() =
     [<Test;AsyncStateMachine(typeof<Task>)>]
     [<TestCaseSource ("Templates")>]
     member x.``Build every template`` (tt:string) =
+        if tt = "FSharpPortableLibrary" then
+            Assert.Fail("A platform service implementation has not been found")
         toTask <| async {
             let projectTemplate = ProjectTemplate.ProjectTemplates |> Seq.find (fun t -> t.Id == tt)
             let dir = FilePath (FilePath(".").FullPath.ToString() / "buildtemplates" / projectTemplate.Id)
@@ -118,26 +121,37 @@ type ``Template tests``() =
             let projects = sln.Items |> Seq.filter(fun i -> i :? DotNetProject) |> Seq.cast<DotNetProject> |> List.ofSeq
 
             let fixReferences (project:DotNetProject) =
+
                 let rec assemblyReferencesForPackage (packageId, packageVersion) =
                     seq {
                         let profile = profileMap.[project.TargetFramework.Id.Identifier]
                         let nameAndVersion = sprintf "%s.%s" packageId packageVersion
                         let foldersToScan = [packagesFolder/nameAndVersion/"lib"/profile
+                                             packagesFolder/nameAndVersion/"build"/profile
                                              packagesFolder/nameAndVersion/"lib"/"portable-win+net45+wp80+win81+wpa81+MonoAndroid10+MonoTouch10+Xamarin.iOS10" //XF
                                              packagesFolder/nameAndVersion/"lib"]
 
-                        let baseFolder = foldersToScan |> List.find Directory.Exists
+                        let baseFolder = foldersToScan |> List.tryFind Directory.Exists
 
-                        let files = Directory.GetFiles(baseFolder, "*.dll", SearchOption.AllDirectories)
-                        yield! files
-                               |> Seq.map(fun file -> ProjectReference.CreateCustomReference(ReferenceType.Assembly, packageId, file))
+                        match baseFolder with
+                        | Some baseFolder' ->
+                            let files = Directory.GetFiles(baseFolder', "*.dll")
+                            yield! files
+                                   |> Seq.map(fun file -> ProjectReference.CreateCustomReference(ReferenceType.Assembly, packageId, file))
 
-                        // hack to get dependent packages for XF. Should really unzip the nupkgs and inspect the nuspecs for deps
-                        if packageId = "Xamarin.Android.Support.v7.AppCompat" then
-                            yield! assemblyReferencesForPackage ("Xamarin.Android.Support.v4", "23.3.0")
-                            yield! assemblyReferencesForPackage ("Xamarin.Android.Support.Vector.Drawable", "23.3.0")
-                            yield! assemblyReferencesForPackage ("Xamarin.Android.Support.Animated.Vector.Drawable", "23.3.0")
-                            yield! assemblyReferencesForPackage ("Xamarin.Android.Support.v7.CardView", "23.3.0")
+                            // hack to get dependent packages for XF. 
+                            // Ideally, it should recursively unzip the nupkgs and inspect the nuspecs for deps
+                            if packageId = "Xamarin.Android.Support.v7.AppCompat" then
+                                yield! assemblyReferencesForPackage ("Xamarin.Android.Support.v4", "23.3.0")
+                                yield! assemblyReferencesForPackage ("Xamarin.Android.Support.Vector.Drawable", "23.3.0")
+                                yield! assemblyReferencesForPackage ("Xamarin.Android.Support.Animated.Vector.Drawable", "23.3.0")
+                                yield! assemblyReferencesForPackage ("Xamarin.Android.Support.v7.CardView", "23.3.0")
+                                yield! assemblyReferencesForPackage ("Xamarin.Android.Support.Design", "23.3.0")
+                                yield! assemblyReferencesForPackage ("Xamarin.Android.Support.v7.RecyclerView", "23.3.0")
+                                yield! assemblyReferencesForPackage ("Xamarin.Android.Support.v7.MediaRouter", "23.3.0")
+
+                        | None ->
+                            Assert.Fail (sprintf "Searched folders %A for nuget" foldersToScan)
                     }
 
                 let packages = 
@@ -154,8 +168,11 @@ type ``Template tests``() =
                     for ref in refs do
                         project.References.Add ref
 
-                packages |> Option.iter addRefs
+                packages |> Option.iter addRefs //(fun packages' -> p.Run(sln, packages'))
 
+            //do! Runtime.RunInMainThread(fun () ->
+            //        let p = MonoDevelop.PackageManagement.ProjectTemplateNuGetPackageInstaller()
+            //        p.Run(sln, projectTemplate.PackageReferencesForCreatedProjects)) |> Async.AwaitTask
             for project in projects do
                 fixReferences project
             do! sln.SaveAsync(monitor) |> Async.AwaitTask
@@ -176,7 +193,8 @@ type ``Template tests``() =
                                 yield "Editor error", error.FileName, error.Message
                     | _ ->
                         for error in result.Errors do
-                            yield "Build error", error.FileName, error.ErrorText
+                            if not error.IsWarning then
+                                yield "Build error", error.FileName, error.ErrorText
                 }
 
             let errors = getErrorsForProject projects |> AsyncSeq.toSeq |> List.ofSeq
